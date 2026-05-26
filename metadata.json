@@ -1,0 +1,10 @@
+{
+  "name": "포토수집 프로",
+  "description": "사용자들로부터 증빙 사진을 수집하고 AI가 상황을 분석하여 자동으로 분류/정리하는 시스템입니다.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

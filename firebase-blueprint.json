@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "PhotoSubmission": {
+      "title": "Photo Submission",
+      "description": "A submission containing a photo and sender information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "organized", "rejected"] },
+        "aiAnalysis": { "type": "string" },
+        "groupName": { "type": "string" }
+      },
+      "required": ["senderName", "photoUrl", "submittedAt"]
+    },
+    "AppConfig": {
+      "title": "App Configuration",
+      "description": "Global settings for the photo collection app.",
+      "type": "object",
+      "properties": {
+        "adminEmail": { "type": "string" },
+        "isCollecting": { "type": "boolean" },
+        "targetCount": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/submissions/{submissionId}": {
+      "schema": "PhotoSubmission",
+      "description": "Collected photos and their metadata."
+    },
+    "/config/global": {
+      "schema": "AppConfig",
+      "description": "Global application state."
+    }
+  }
+}

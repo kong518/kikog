@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      // In a real app, you'd check a dedicated admins collection or specific email.
+      // For this app, we'll allow the person who set it up (the user) to be admin.
+      return isSignedIn() && (
+        request.auth.token.email == "kong@suwonrehab.or.kr" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidSubmission(data) {
+      return data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 100
+          && data.photoUrl is string && data.photoUrl.size() > 0 && data.photoUrl.size() <= 2000000
+          && data.submittedAt is timestamp
+          && (data.status == "pending" || data.status == "organized");
+    }
+
+    // Submissions
+    match /submissions/{submissionId} {
+      // Anyone can submit a photo (Create)
+      allow create: if isValidSubmission(request.resource.data);
+      
+      // Only admins can see and delete; updates are allowed for admins or background system (unauthenticated server updates of AI results)
+      allow read, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        request.auth == null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['aiAnalysis', 'groupName', 'status'])
+      );
+    }
+
+    // App Config
+    match /config/{configId} {
+      allow read: if true; // Publicly readable settings
+      allow write: if isAdmin();
+    }
+    
+    // Admin list
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
