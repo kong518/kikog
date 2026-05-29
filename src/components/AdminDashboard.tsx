@@ -1,9 +1,8 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
-import { signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, linkWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
-import { Grid, List, Search, LogOut, Filter, Image as ImageIcon, Download, Trash2, Cpu, Printer, ExternalLink, Lock } from 'lucide-react';
+import { Grid, List, Search, Trash2, Cpu, Printer, ExternalLink, Lock, Image as ImageIcon, Download } from 'lucide-react';
 
 interface Submission {
   id: string;
@@ -20,15 +19,11 @@ export default function AdminDashboard() {
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
-  // States for external password setup and login
-  const [loginEmail, setLoginEmail] = useState('kong@suwonrehab.or.kr');
-  const [loginPassword, setLoginPassword] = useState('');
+  // States for simple password authentication
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => sessionStorage.getItem('isAdminAuth') === 'true');
+  const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  
-  const [newAdminPassword, setNewAdminPassword] = useState('');
-  const [linkStatus, setLinkStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
 
   const formatTimestamp = (submittedAt: any) => {
     if (!submittedAt) return '';
@@ -49,7 +44,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!isAdmin) return;
 
     // Sort by senderName ascending (가나다 순)
     const q = query(collection(db, 'submissions'), orderBy('senderName', 'asc'));
@@ -62,87 +57,26 @@ export default function AdminDashboard() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isAdmin]);
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      // Try popup first
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      console.error("Login failed:", err);
-      if (err.code === 'auth/popup-blocked') {
-        alert('팝업이 차단되었습니다. 브라우저 설정에서 팝업을 허용해주세요.');
-      } else {
-        alert('로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-      }
-    }
-  };
-
-  const handleEmailPasswordLogin = async (e: FormEvent) => {
+  const handlePasswordLogin = (e: FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    if (!loginPassword) {
-      setLoginError('비밀번호를 입력해주세요.');
-      return;
-    }
-    try {
-      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
-    } catch (err: any) {
-      console.error("Email login failed:", err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setLoginError('이메일 또는 비밀번호가 올바르지 않습니다. AI Studio에서 비밀번호를 먼저 등록해두셔야 합니다.');
-      } else {
-        setLoginError(`로그인 실패: ${err.message || err}`);
-      }
+    if (password === '5612') {
+      setIsAdmin(true);
+      sessionStorage.setItem('isAdminAuth', 'true');
+      setPassword('');
+    } else {
+      setLoginError('비밀번호가 올바르지 않습니다.');
     }
   };
 
-  const handleSetPassword = async () => {
-    setLinkStatus(null);
-    if (!newAdminPassword || newAdminPassword.length < 6) {
-      setLinkStatus({ type: 'error', message: '비밀번호는 최소 6자리 이상이어야 합니다.' });
-      return;
-    }
-    
-    try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('로그인이 필요합니다.');
-      
-      const email = user.email || 'kong@suwonrehab.or.kr';
-      const credential = EmailAuthProvider.credential(email, newAdminPassword);
-      
-      setLinkStatus({ type: 'loading', message: '비밀번호 설정 및 연동 중...' });
-      
-      try {
-        await linkWithCredential(user, credential);
-        setLinkStatus({ type: 'success', message: '✓ 전용 비밀번호 연동 성공! 이제 외부 도메인(kikog.vercel.app)에서도 이 이메일과 비밀번호로 안전하게 로그인할 수 있습니다.' });
-        setNewAdminPassword('');
-      } catch (linkErr: any) {
-        // If already linked, update the password instead
-        if (linkErr.code === 'auth/provider-already-linked' || linkErr.code === 'auth/email-already-in-use') {
-          await updatePassword(user, newAdminPassword);
-          setLinkStatus({ type: 'success', message: '✓ 비밀번호가 성공적으로 변경되었습니다! 외부 도메인에서 이 비밀번호로 로그인해주세요.' });
-          setNewAdminPassword('');
-        } else {
-          throw linkErr;
-        }
-      }
-    } catch (err: any) {
-      console.error(err);
-      setLinkStatus({ type: 'error', message: `❌ 설정 실패: ${err.message || err}` });
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-      window.history.pushState({ path: cleanUrl }, '', cleanUrl);
-      window.dispatchEvent(new Event('popstate'));
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
+  const handleLogout = () => {
+    setIsAdmin(false);
+    sessionStorage.removeItem('isAdminAuth');
+    const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+    window.history.pushState({ path: cleanUrl }, '', cleanUrl);
+    window.dispatchEvent(new Event('popstate'));
   };
 
   const handlePrint = () => {
@@ -164,7 +98,7 @@ export default function AdminDashboard() {
     s.groupName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  if (!auth.currentUser) {
+  if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 px-4">
         <div className="w-full max-w-md bg-white p-10 rounded-3xl shadow-2xl shadow-slate-200 border border-slate-100 space-y-6">
@@ -176,69 +110,32 @@ export default function AdminDashboard() {
             <p className="text-xs text-slate-500">자동화 모니터링 캠페인 관리 시스템</p>
           </div>
 
-          <div className="space-y-4">
-            <button 
-              onClick={handleLogin}
-              className="w-full py-3 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer text-xs"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.22-.66-.35-1.36-.35-2.09z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Google 계정으로 로그인 (선택)
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-slate-200"></div>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">또는 외부(Vercel) 주소 로그인</span>
-              <div className="flex-1 h-px bg-slate-200"></div>
+          <form onSubmit={handlePasswordLogin} className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">관리자 비밀번호</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono text-center tracking-widest text-lg" 
+                placeholder="••••"
+                required
+              />
             </div>
 
-            <form onSubmit={handleEmailPasswordLogin} className="space-y-3.5">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">이메일 주소</label>
-                <input 
-                  type="email" 
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-medium text-slate-700" 
-                  placeholder="name@example.com"
-                  required
-                />
+            {loginError && (
+              <div className="text-[10px] text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg leading-relaxed font-semibold">
+                ⚠️ {loginError}
               </div>
+            )}
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">비밀번호</label>
-                <input 
-                  type="password" 
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-mono" 
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-
-              {loginError && (
-                <div className="text-[10px] text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg leading-relaxed font-semibold">
-                  ⚠️ {loginError}
-                </div>
-              )}
-
-              <button 
-                type="submit"
-                className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all text-xs cursor-pointer shadow-md"
-              >
-                비밀번호로 로그인
-              </button>
-            </form>
-
-            <p className="text-[10px] text-slate-400 leading-relaxed text-center">
-              ⚠️ 외부에 계신 경우, 구글 로그인 대신 <strong>비밀번호 로그인</strong>을 사용하세요. 비밀번호는 AI Studio 안전 미리보기창에서 로그인하신 후 설정하실 수 있습니다.
-            </p>
-          </div>
+            <button 
+              type="submit"
+              className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all text-xs cursor-pointer shadow-md"
+            >
+              대시보드 로그인
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -266,7 +163,7 @@ export default function AdminDashboard() {
           <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{auth.currentUser.email}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">kong@suwonrehab.or.kr</p>
               <button 
                 onClick={handleLogout}
                 className="text-[10px] font-bold text-red-500 uppercase flex items-center gap-1 hover:underline justify-end"
@@ -275,11 +172,7 @@ export default function AdminDashboard() {
               </button>
             </div>
             <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-               {auth.currentUser.photoURL ? (
-                 <img src={auth.currentUser.photoURL} alt="User" />
-               ) : (
-                 <Search size={16} className="text-slate-400" />
-               )}
+              <Lock size={16} className="text-slate-400" />
             </div>
           </div>
         </div>
@@ -329,42 +222,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
-            <div className="flex items-center gap-1.5 text-slate-700">
-              <Lock size={14} className="text-blue-600" />
-              <label className="text-[10px] font-bold uppercase tracking-wider">🔒 Vercel/외부 로그인 설정</label>
-            </div>
-            <p className="text-[9px] text-slate-400 leading-normal">
-              구글 로그인 보안 차단을 우회하기 위해 이메일/비밀번호 로그인을 연동합니다.
-            </p>
-            <div className="space-y-2">
-              <input 
-                type="password" 
-                placeholder="사용할 비밀번호 (6자 이상)" 
-                value={newAdminPassword}
-                onChange={(e) => setNewAdminPassword(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-mono outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-              />
-              <button 
-                onClick={handleSetPassword}
-                className="w-full py-1.5 bg-slate-800 text-white rounded-lg text-[9px] font-bold hover:bg-slate-900 transition-all uppercase tracking-wider cursor-pointer"
-              >
-                비밀번호 등록 및 연동
-              </button>
-            </div>
 
-            {linkStatus && (
-              <div className={`p-2 rounded-lg text-[9px] leading-relaxed font-semibold border ${
-                linkStatus.type === 'success' 
-                  ? 'bg-green-50 border-green-100 text-green-700' 
-                  : linkStatus.type === 'loading'
-                  ? 'bg-blue-50 border-blue-100 text-blue-700'
-                  : 'bg-red-50 border-red-100 text-red-700'
-              }`}>
-                {linkStatus.message}
-              </div>
-            )}
-          </div>
 
           <div className="mt-auto space-y-2">
              {window.self !== window.top && (
