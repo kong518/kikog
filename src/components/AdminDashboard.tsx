@@ -54,6 +54,8 @@ export default function AdminDashboard() {
         ...doc.data()
       })) as Submission[];
       setSubmissions(data);
+    }, (error) => {
+      console.error("Firestore subscription error:", error);
     });
 
     return () => unsubscribe();

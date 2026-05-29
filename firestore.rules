@@ -32,12 +32,9 @@ service cloud.firestore {
       // Anyone can submit a photo (Create)
       allow create: if isValidSubmission(request.resource.data);
       
-      // Only admins can see and delete; updates are allowed for admins or background system (unauthenticated server updates of AI results)
-      allow read, delete: if isAdmin();
-      allow update: if isAdmin() || (
-        request.auth == null &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['aiAnalysis', 'groupName', 'status'])
-      );
+      // Since we replaced Firebase Auth with a client-side passcode (5612) for simplicity and Vercel external bypass,
+      // we allow read, delete, and update without Firebase Authentication requirements.
+      allow read, delete, update: if true;
     }
 
     // App Config
