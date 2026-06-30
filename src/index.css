@@ -23,38 +23,85 @@
 
 /* Print styles */
 @media print {
-  body {
-    background: white !important;
+  /* Retain colorful element prints */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  header, aside, footer, button, .no-print {
+
+  /* Reset layout constraints so page breaks can work naturally across several pages */
+  html, body, #root, .overflow-y-auto, .h-screen, .min-h-screen, .flex-1, main {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  header, aside, footer, button, form, .no-print, .print\:hidden {
     display: none !important;
   }
+
   main {
     padding: 0 !important;
     margin: 0 !important;
-    overflow: visible !important;
+    width: 100% !important;
     display: block !important;
   }
-  .aspect-square {
-    height: auto !important;
-    aspect-ratio: 1/1 !important;
+
+  /* Grid layout for printed pages - simple rows for high-fidelity photos */
+  .grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1.0rem !important;
     width: 100% !important;
   }
-  /* Ensure 6 items per page (3 rows of 2 columns) */
+
+  /* Vertical & horizontal centering container for each A4 print page */
+  .print-page-container {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    min-height: 255mm !important; /* Forces vertical centering within the A4 height printable boundary */
+    page-break-after: always !important;
+    break-after: page !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+
+  .print-page-container:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Individual card styles to avoid being clipped halfway across pages */
   .print\:break-inside-avoid {
-    height: 310px !important;
+    height: auto !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-    margin-bottom: 0.5rem !important;
+    margin-bottom: 1.0rem !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 0.75rem !important;
     overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: #ffffff !important;
   }
-  .aspect-square.print\:cursor-default {
-    height: 220px !important;
-    aspect-ratio: auto !important;
+
+  .aspect-square {
+    aspect-ratio: 4/3 !important; /* 가로 세로 4:3 비율로 변경하여 높이 절감 -> 한 페이지 4장 완벽 배치 */
+    height: auto !important;
+    width: 100% !important;
   }
 }
 @page {
-  margin: 1.5cm;
+  size: A4 portrait;
+  margin: 1.0cm 0.8cm; /* 인쇄 여백 최적화 */
 }
 ::-webkit-scrollbar {
   width: 6px;

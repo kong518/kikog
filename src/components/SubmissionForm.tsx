@@ -5,149 +5,162 @@ import { db, storage } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// Client-side image compression helper with guaranteed resolution
-const compressImage = (file: File): Promise<Blob | File> => {
-  return new Promise((resolve) => {
-    // 3-second timeout fallback
-    const timeoutId = setTimeout(() => {
-      console.warn("Image compression timed out, falling back to original file.");
-      resolve(file);
-    }, 3000);
+// Robust File Reader with Retries & Initial Delay to bypass Android OS locks & KakaoTalk/In-App browser issues
+const readFileAsDataURLWithRetry = (file: File, retries = 3, delayMs = 500): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
 
-    try {
+    const tryRead = () => {
+      attempt++;
       const reader = new FileReader();
       
-      reader.onload = (event) => {
-        try {
-          const img = new Image();
-          
-          img.onload = () => {
-            clearTimeout(timeoutId);
-            try {
-              const canvas = document.createElement('canvas');
-              let width = img.width;
-              let height = img.height;
-
-              // Max dimension 800px for instant uploads <= 50KB
-              const MAX_DIM = 800;
-              if (width > MAX_DIM || height > MAX_DIM) {
-                if (width > height) {
-                  height = Math.round((height * MAX_DIM) / width);
-                  width = MAX_DIM;
-                } else {
-                  width = Math.round((width * MAX_DIM) / height);
-                  height = MAX_DIM;
-                }
-              }
-
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              if (!ctx) {
-                resolve(file);
-                return;
-              }
-
-              ctx.drawImage(img, 0, 0, width, height);
-              canvas.toBlob(
-                (blob) => {
-                  if (blob) {
-                    resolve(blob);
-                  } else {
-                    resolve(file);
-                  }
-                },
-                'image/jpeg',
-                0.60 // High clarity but very lightweight (typically 30-50KB)
-              );
-            } catch (canvasErr) {
-              console.error("Canvas compression error:", canvasErr);
-              resolve(file);
-            }
-          };
-
-          img.onerror = (err) => {
-            clearTimeout(timeoutId);
-            console.error("Image load fail in compression:", err);
-            resolve(file);
-          };
-
-          // CRITICAL BUG FIX: Set src AFTER onload / onerror to prevent cache race conditions on mobile browsers (like KakaoTalk/iOS Safari)
-          img.src = event.target?.result as string;
-
-        } catch (readerErr) {
-          clearTimeout(timeoutId);
-          console.error("Reader onload fail:", readerErr);
-          resolve(file);
+      reader.onload = (e) => {
+        if (typeof e.target?.result === 'string') {
+          resolve(e.target.result);
+        } else {
+          reject(new Error('이미지 데이터를 읽을 수 없습니다.'));
         }
       };
 
       reader.onerror = (err) => {
-        clearTimeout(timeoutId);
-        console.error("FileReader error in compression:", err);
-        resolve(file);
+        console.warn(`File read attempt ${attempt} failed:`, reader.error || err);
+        if (attempt < retries) {
+          setTimeout(tryRead, delayMs);
+        } else {
+          reject(reader.error || new Error('이미지 파일을 읽을 수 없습니다. (권한 또는 파일 상태 오류)'));
+        }
       };
 
-      reader.readAsDataURL(file);
+      try {
+        reader.readAsDataURL(file);
+      } catch (e) {
+        console.warn(`File read trigger attempt ${attempt} threw:`, e);
+        if (attempt < retries) {
+          setTimeout(tryRead, delayMs);
+        } else {
+          reject(e);
+        }
+      }
+    };
+
+    // 250ms initial delay to let the camera/gallery finish flushing file locks
+    setTimeout(tryRead, 250);
+  });
+};
+
+// Client-side image compression helper returning base64 directly
+const compressImageToBase64 = async (file: File): Promise<string> => {
+  // Read file into memory immediately and robustly (Once in memory, OS permission revocation can no longer affect us)
+  const originalBase64 = await readFileAsDataURLWithRetry(file);
+
+  return new Promise((resolve) => {
+    // 3-second timeout fallback to original image
+    const timeoutId = setTimeout(() => {
+      console.warn("Image compression timed out, falling back to original base64.");
+      resolve(originalBase64);
+    }, 3000);
+
+    try {
+      const img = new Image();
+      
+      img.onload = () => {
+        clearTimeout(timeoutId);
+        try {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Max dimension 800px for high clarity but extremely lightweight base64
+          const MAX_DIM = 800;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(originalBase64);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Get compressed Base64 directly
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.60);
+          resolve(compressedDataUrl);
+        } catch (canvasErr) {
+          console.error("Canvas compression error:", canvasErr);
+          resolve(originalBase64);
+        }
+      };
+
+      img.onerror = (err) => {
+        clearTimeout(timeoutId);
+        console.error("Image load fail in compression, using original:", err);
+        resolve(originalBase64);
+      };
+
+      // Set src from the robustly loaded dataUrl
+      img.src = originalBase64;
+
     } catch (err) {
       clearTimeout(timeoutId);
-      console.error("FileReader initiation error:", err);
-      resolve(file);
+      console.error("Compression flow error, using original:", err);
+      resolve(originalBase64);
     }
   });
 };
 
 export default function SubmissionForm({ onAdminAccess }: { onAdminAccess: () => void }) {
   const [senderName, setSenderName] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [compressedBase64, setCompressedBase64] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (selected) {
       if (!selected.type.startsWith('image/')) {
         setError('이미지 파일만 업로드 가능합니다.');
         return;
       }
-      setFile(selected);
-      const reader = new FileReader();
-      reader.onloadend = () => setPreview(reader.result as string);
-      reader.readAsDataURL(selected);
+      
+      setIsCompressing(true);
       setError(null);
+      setPreview(null);
+      setCompressedBase64(null);
+
+      try {
+        const base64 = await compressImageToBase64(selected);
+        setCompressedBase64(base64);
+        setPreview(base64);
+      } catch (err: any) {
+        console.error("Image loading/compression failed completely:", err);
+        setError(err?.message || '이미지를 불러올 수 없습니다. 카메라 권한 또는 파일 권한을 확인해주세요.');
+      } finally {
+        setIsCompressing(false);
+      }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || !senderName.trim()) return;
+    if (!compressedBase64 || !senderName.trim()) return;
 
     setStatus('uploading');
     try {
-      // 1. Client-Side Image Compression
-      let uploadData: Blob | File = file;
-      try {
-        uploadData = await compressImage(file);
-      } catch (compressErr) {
-        console.warn("Image compression failed, using original file", compressErr);
-      }
-
-      // 2. Convert compressed Blob/File to base64 string
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-          } else {
-            reject(new Error('파일 읽기 오류가 발생했습니다.'));
-          }
-        };
-        reader.onerror = () => reject(reader.error);
-      });
-      reader.readAsDataURL(uploadData);
-      const base64Image = await base64Promise;
+      // Use the pre-compressed, memory-cached base64 image directly (no permission loss risk)
+      const base64Image = compressedBase64;
 
       // 3. Request Gemini AI analysis from Server (Pure AI endpoint)
       let aiAnalysis = "";
@@ -263,7 +276,12 @@ export default function SubmissionForm({ onAdminAccess }: { onAdminAccess: () =>
                 htmlFor="photo-upload"
                 className="flex flex-col items-center justify-center w-full aspect-[4/3] border-2 border-dashed border-slate-200 rounded-xl overflow-hidden hover:border-blue-400 hover:bg-blue-50/30 cursor-pointer transition-all bg-slate-50"
               >
-                {preview ? (
+                {isCompressing ? (
+                  <div className="flex flex-col items-center gap-3 text-blue-600 animate-pulse">
+                    <Loader2 className="animate-spin text-blue-500" size={24} />
+                    <span className="text-sm font-bold">사진 처리 및 최적화 중...</span>
+                  </div>
+                ) : preview ? (
                   <img src={preview} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
                   <div className="flex flex-col items-center gap-3 text-slate-400">
@@ -286,10 +304,15 @@ export default function SubmissionForm({ onAdminAccess }: { onAdminAccess: () =>
 
           <button
             type="submit"
-            disabled={!file || !senderName || status === 'uploading'}
+            disabled={!compressedBase64 || !senderName || status === 'uploading' || isCompressing}
             className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-700 active:scale-[0.98] transition-all shadow-lg shadow-blue-200"
           >
-            {status === 'uploading' ? (
+            {isCompressing ? (
+              <>
+                <Loader2 className="animate-spin" size={20} />
+                <span>사진 최적화 중...</span>
+              </>
+            ) : status === 'uploading' ? (
               <>
                 <Loader2 className="animate-spin" size={20} />
                 <span>전송 중...</span>

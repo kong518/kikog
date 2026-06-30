@@ -100,6 +100,13 @@ export default function AdminDashboard() {
     s.groupName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Group active submissions into chunks of exactly 4 for vertical print centering
+  const printPages: Submission[][] = [];
+  const chunkSize = 4;
+  for (let i = 0; i < activeSubmissions.length; i += chunkSize) {
+    printPages.push(activeSubmissions.slice(i, i + chunkSize));
+  }
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 px-4">
@@ -144,9 +151,11 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-100 text-slate-900">
+    <>
+      {/* Screen Interface - Completely hidden during printing */}
+      <div className="flex flex-col h-screen overflow-hidden bg-slate-100 text-slate-900 print:hidden">
       {/* Header */}
-      <header className="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 z-10">
+      <header className="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 z-10 print:hidden">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-100">
             <ImageIcon size={20} />
@@ -180,7 +189,7 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden print:block print:h-auto print:overflow-visible">
         {/* Sidebar */}
         <aside className="w-64 bg-slate-50 border-r border-slate-200 p-6 flex flex-col gap-8 shrink-0 print:hidden">
           <div>
@@ -248,13 +257,19 @@ export default function AdminDashboard() {
         </aside>
 
         {/* Main Workspace */}
-        <main className="flex-1 bg-white overflow-hidden flex flex-col">
-          <div className="p-8 flex items-end justify-between border-b border-slate-50 shrink-0">
-            <div className="print:block hidden print:mb-8">
-              <h1 className="text-2xl font-bold">서비스 모니터링 증빙자료 ({new Date().toLocaleDateString('ko-KR')})</h1>
+        <main className="flex-1 bg-white overflow-hidden flex flex-col print:block print:h-auto print:overflow-visible">
+          <div className="p-8 flex items-end justify-between border-b border-slate-50 shrink-0 print:border-b-0 print:p-0">
+            <div className="print:block hidden print:mb-5 w-full border-b border-slate-300 pb-3">
+              <div className="flex items-baseline justify-between w-full">
+                <h1 className="text-2xl font-extrabold text-slate-900">
+                  서비스 모니터링 증빙자료 <span className="text-base font-bold text-slate-500 ml-1">(총 {activeSubmissions.length}장)</span>
+                </h1>
+              </div>
             </div>
             <div className="print:hidden">
-              <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">수신된 사진</h2>
+              <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+                수신된 사진 <span className="text-lg font-bold text-blue-600 ml-1.5">(총 {activeSubmissions.length}장)</span>
+              </h2>
               <p className="text-xs text-slate-400 font-medium mt-1">총 {activeSubmissions.length}개의 제출물을 실시간으로 모니터링하고 있습니다.</p>
             </div>
             
@@ -314,7 +329,7 @@ export default function AdminDashboard() {
                   
                   {/* Empty state slots to match design mockup */}
                   {activeSubmissions.length < 8 && Array.from({ length: 8 - activeSubmissions.length }).map((_, i) => (
-                    <div key={`empty-${i}`} className="rounded-xl border-2 border-dashed border-slate-100 h-64 flex flex-col items-center justify-center bg-slate-50 opacity-40">
+                    <div key={`empty-${i}`} className="rounded-xl border-2 border-dashed border-slate-100 h-64 flex flex-col items-center justify-center bg-slate-50 opacity-40 print:hidden">
                       <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">제출 대기 중...</p>
                     </div>
                   ))}
@@ -436,6 +451,61 @@ export default function AdminDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+
+      {/* Print Interface - ONLY visible during printing */}
+      <div className="hidden print:block w-full bg-white text-slate-900 p-0 m-0">
+        {printPages.map((pageSubmissions, pageIndex) => (
+          <div 
+            key={`print-page-${pageIndex}`} 
+            className="print-page-container"
+          >
+            {/* If it is the first page, show the title beautifully centered at the top of the container */}
+            {pageIndex === 0 && (
+              <div className="w-full border-b border-slate-300 pb-3 mb-6">
+                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight text-center">
+                  서비스 모니터링 증빙자료 <span className="text-base font-bold text-slate-500 ml-1">(총 {activeSubmissions.length}장)</span>
+                </h1>
+              </div>
+            )}
+
+            {/* Centered 2x2 grid */}
+            <div className="grid grid-cols-2 gap-4 w-full">
+              {pageSubmissions.map((sub) => (
+                <div 
+                  key={`print-card-${sub.id}`}
+                  className="bg-white rounded-xl overflow-hidden border border-slate-300 flex flex-col"
+                >
+                  <div className="aspect-square relative overflow-hidden bg-slate-50 border-b border-slate-200">
+                    <img 
+                      src={sub.photoUrl} 
+                      alt={sub.senderName}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 left-2">
+                      <span className="px-2 py-1 bg-white text-slate-900 text-[10px] font-black rounded-md border border-slate-300 shadow-sm">
+                        {sub.senderName}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="p-3 flex flex-col justify-center">
+                    <div className="flex flex-col gap-1 justify-center">
+                      <h4 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest font-mono">보낸 사람</h4>
+                      <h3 className="font-extrabold text-slate-800 text-xs truncate">{sub.senderName}</h3>
+                      <div className="h-px bg-slate-100 my-1"></div>
+                      <h4 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest font-mono">전송 시간</h4>
+                      <span className="text-[9px] font-mono font-bold text-slate-500">
+                        {sub.submittedAt ? formatTimestamp(sub.submittedAt) : '전송 중...'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
